@@ -208,7 +208,7 @@
   }
 
   .main.detail-open {
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 1fr 400px;
   }
 
   .content {
@@ -405,6 +405,85 @@
     font-size: 12px;
     font-weight: 500;
     width: 60px;
+  }
+
+  /* Analysis */
+  .analysis-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .analysis-summary {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.7;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .analysis-block {
+    margin-bottom: 12px;
+  }
+
+  .analysis-block-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+  }
+
+  .category-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .category-name {
+    flex: 1;
+    color: var(--text);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .category-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .category-pct {
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .pattern-item {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+
+  .pattern-dot {
+    color: var(--amber);
+    flex-shrink: 0;
+    margin-top: 2px;
   }
 
   /* Detail Panel */
@@ -692,6 +771,20 @@
         <div class="section-title" style="margin-top:10px">시간대 패턴</div>
         <div class="detail-chart-wrap">
           <canvas id="detail-chart-hourly"></canvas>
+        </div>
+      </div>
+
+      <!-- Analysis Card -->
+      <div class="analysis-card" id="analysis-card" style="display:none">
+        <div class="section-title" style="margin-bottom:10px">취재 동향 분석</div>
+        <div class="analysis-summary" id="analysis-summary"></div>
+        <div class="analysis-block">
+          <div class="analysis-block-title">주요 취재 분야</div>
+          <div id="analysis-categories"></div>
+        </div>
+        <div class="analysis-block" id="analysis-patterns-block" style="display:none">
+          <div class="analysis-block-title">눈에 띄는 패턴</div>
+          <div id="analysis-patterns"></div>
         </div>
       </div>
 
@@ -1116,12 +1209,164 @@ async function openDetail(journalistId) {
 
   document.getElementById('detail-panel').classList.add('visible');
   document.querySelector('.main').classList.add('detail-open');
+
+  renderAnalysis(journalist, articles);
 }
 
 function closeDetail() {
   state.selectedJournalist = null;
   document.getElementById('detail-panel').classList.remove('visible');
   document.querySelector('.main').classList.remove('detail-open');
+}
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+
+const TOPIC_CATEGORIES = [
+  { name: '가상자산·거래소·규제', keywords: ['빗썸','코인원','코빗','업비트','두나무','가상자산','가상화폐','코인','거래소','FIU','과세','크립토','비트코인','이더리움','알트','토큰','디지털자산기본법','가산자산','FIU','코인베이스','바이낸스','리플','솔라나'] },
+  { name: 'ETF·자산운용', keywords: ['ETF','상장지수','운용','펀드','투자신탁','TDF','아문디','ACE ETF','자산운용','배당','KODEX','TIGER','나스닥','S&P'] },
+  { name: '스테이블코인·디지털금융', keywords: ['스테이블코인','CBDC','USDC','USDT','디페깅','써클','원화코인','페그','디지털달러','디지털금융'] },
+  { name: '블록체인·Web3·NFT', keywords: ['블록체인','NFT','DeFi','디파이','레이어','프로토콜','Web3','웹3','DAO','메타버스','P2E','GameFi'] },
+  { name: '증권·IPO·M&A', keywords: ['증권','IPO','상장','공모','M&A','인수합병','코스피','코스닥','주가','기업공개','스팩'] },
+  { name: '핀테크·결제·은행', keywords: ['핀테크','결제','간편결제','토스','카카오페이','네이버페이','인터넷은행','케이뱅크','카카오뱅크','뱅킹','송금'] },
+  { name: '경제·금리·정책', keywords: ['금리','인플레이션','기준금리','한국은행','경제','정책','금융위','금감원','기재부','기획재정부','통화','환율'] },
+  { name: '보험·연금', keywords: ['보험','연금','노후','보장','생명보험','손해보험','실손'] },
+];
+
+function categorizeArticles(articles) {
+  const counts = {};
+  TOPIC_CATEGORIES.forEach(c => { counts[c.name] = 0; });
+  counts['기타'] = 0;
+
+  articles.forEach(a => {
+    const title = (a[CONFIG.COL_TITLE] || '').toLowerCase();
+    let matched = false;
+    for (const cat of TOPIC_CATEGORIES) {
+      if (cat.keywords.some(kw => title.includes(kw.toLowerCase()))) {
+        counts[cat.name]++;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) counts['기타']++;
+  });
+
+  return Object.entries(counts)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+}
+
+function detectPatterns(articles) {
+  const patterns = [];
+  const total = articles.length;
+  if (total === 0) return patterns;
+
+  // 1. 피크 날짜 감지
+  const dayCounts = {};
+  articles.forEach(a => {
+    const day = a[CONFIG.COL_PUBLISHED_AT].slice(0, 10);
+    dayCounts[day] = (dayCounts[day] || 0) + 1;
+  });
+  const days = Object.values(dayCounts);
+  const avg = days.reduce((s, v) => s + v, 0) / days.length;
+  const peakDays = Object.entries(dayCounts)
+    .filter(([, v]) => v >= Math.max(avg * 2.5, 5))
+    .sort((a, b) => b[1] - a[1]);
+  if (peakDays.length > 0) {
+    const [date, count] = peakDays[0];
+    const d = new Date(date);
+    patterns.push(`${d.getMonth() + 1}월 ${d.getDate()}일 하루에만 ${count}건이 집중되었습니다.`);
+  }
+
+  // 2. 연속 기획 시리즈 감지 (동일 키워드 3건 이상)
+  const seriesMap = {};
+  const seriesKeywords = ['스테이블코인','비트코인','ETF','과세','거래소','디지털자산','블록체인','규제','CBDC','금리'];
+  seriesKeywords.forEach(kw => {
+    const matched = articles.filter(a => (a[CONFIG.COL_TITLE] || '').includes(kw));
+    if (matched.length >= 3) {
+      const dates = matched.map(a => a[CONFIG.COL_PUBLISHED_AT].slice(0, 10)).sort();
+      seriesMap[kw] = { count: matched.length, dates };
+    }
+  });
+  const seriesList = Object.entries(seriesMap).sort((a, b) => b[1].count - a[1].count);
+  if (seriesList.length > 0) {
+    const [kw, info] = seriesList[0];
+    const first = new Date(info.dates[0]);
+    const last = new Date(info.dates[info.dates.length - 1]);
+    patterns.push(`'${kw}' 관련 기사를 ${info.count}건 연속 추적 취재했습니다 (${first.getMonth()+1}/${first.getDate()} ~ ${last.getMonth()+1}/${last.getDate()}).`);
+  }
+
+  // 3. 크로스오버 취재 여부
+  const hasTradi = articles.some(a => {
+    const t = a[CONFIG.COL_TITLE] || '';
+    return ['ETF','증권','펀드','주가','코스피'].some(kw => t.includes(kw));
+  });
+  const hasCrypto = articles.some(a => {
+    const t = a[CONFIG.COL_TITLE] || '';
+    return ['가상자산','코인','블록체인','비트코인','거래소'].some(kw => t.includes(kw));
+  });
+  if (hasTradi && hasCrypto) {
+    patterns.push('가상자산과 전통 금융(ETF·증권) 양쪽을 모두 커버하는 크로스오버 취재 패턴이 나타납니다.');
+  }
+
+  return patterns;
+}
+
+function buildSummary(journalist, articles, categories) {
+  const name = journalist?.name || '이 기자';
+  const outlet = journalist?.outlet || '';
+  const total = articles.length;
+  const days = state.filterDays;
+
+  const toDate = new Date();
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - days);
+  const period = `${fromDate.getMonth()+1}월 ${fromDate.getDate()}일~${toDate.getMonth()+1}월 ${toDate.getDate()}일`;
+
+  const top = categories[0];
+  const topPct = top ? Math.round(top[1] / total * 100) : 0;
+
+  let summary = `${outlet} ${name} 기자의 최근 ${days}일(${period}) 기사 ${total}건을 분석한 결과입니다.`;
+  if (top && topPct >= 20) {
+    summary += ` 전체 기사의 ${topPct}%가 <strong>${top[0]}</strong> 분야에 집중되어 있습니다.`;
+  }
+  return summary;
+}
+
+function renderAnalysis(journalist, articles) {
+  const card = document.getElementById('analysis-card');
+  if (articles.length === 0) { card.style.display = 'none'; return; }
+
+  const categories = categorizeArticles(articles);
+  const patterns = detectPatterns(articles);
+  const total = articles.length;
+
+  document.getElementById('analysis-summary').innerHTML = buildSummary(journalist, articles, categories);
+
+  const catEl = document.getElementById('analysis-categories');
+  catEl.innerHTML = categories.slice(0, 5).map(([name, count]) => {
+    const pct = Math.round(count / total * 100);
+    return `<div class="category-row">
+      <div class="bar-bg" style="width:4px;height:28px;border-radius:2px;flex-shrink:0">
+        <div class="bar-fill" style="width:100%;height:${pct}%;background:var(--accent);border-radius:2px;position:relative;top:${100-pct}%"></div>
+      </div>
+      <span class="category-name">${name}</span>
+      <span class="category-count">${count}건</span>
+      <span class="category-pct">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  const patternsBlock = document.getElementById('analysis-patterns-block');
+  const patternsEl = document.getElementById('analysis-patterns');
+  if (patterns.length > 0) {
+    patternsEl.innerHTML = patterns.map(p =>
+      `<div class="pattern-item"><span class="pattern-dot">▪</span><span>${p}</span></div>`
+    ).join('');
+    patternsBlock.style.display = 'block';
+  } else {
+    patternsBlock.style.display = 'none';
+  }
+
+  card.style.display = 'block';
 }
 
 // ── Filter ─────────────────────────────────────────────────────────────────
