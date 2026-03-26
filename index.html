@@ -769,6 +769,7 @@
       <div class="ranking-card">
         <div class="ranking-header">
           <div class="section-title" style="margin-bottom:0">기자별 기사량 랭킹</div>
+          <div id="ranking-date-range" style="font-size:11px;color:var(--text-muted);font-family:var(--mono)">—</div>
         </div>
         <table class="ranking-table">
           <thead>
@@ -999,10 +1000,20 @@ function renderAll() {
   if (state.selectedJournalist) openDetail(state.selectedJournalist);
 }
 
+function formatDate(d) {
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function renderStats() {
   const total = state.articles.length;
+  const isTruncated = total % 1000 === 0 && total >= 1000;
   const activeJournalists = new Set(state.articles.map(a => a[CONFIG.COL_JOURNALIST_ID])).size;
   const dailyAvg = (total / state.filterDays).toFixed(1);
+
+  const toDate = new Date();
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - state.filterDays);
+  const dateRange = `${formatDate(fromDate)} ~ ${formatDate(toDate)}`;
 
   // section count
   const sectionCounts = {};
@@ -1012,9 +1023,12 @@ function renderStats() {
   });
   const topSection = Object.entries(sectionCounts).sort((a, b) => b[1] - a[1])[0];
 
-  document.getElementById('stat-total').textContent = total.toLocaleString();
+  document.getElementById('stat-total').textContent = total.toLocaleString() + (isTruncated ? '+' : '');
+  document.getElementById('stat-total-delta').textContent = dateRange;
+  document.getElementById('stat-total-delta').className = 'stat-delta delta-neutral';
   document.getElementById('stat-active').textContent = activeJournalists;
   document.getElementById('stat-daily-avg').textContent = dailyAvg;
+  document.getElementById('stat-avg-delta').textContent = dateRange;
   document.getElementById('stat-top-section').textContent = topSection ? topSection[0] : '—';
   document.getElementById('stat-section-count').textContent = topSection ? `${topSection[1]}건` : '';
 }
@@ -1092,6 +1106,12 @@ function renderSectionChart() {
 }
 
 function renderRanking() {
+  // 기간 날짜 범위 표시
+  const toDate = new Date();
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - state.filterDays);
+  document.getElementById('ranking-date-range').textContent = `${formatDate(fromDate)} ~ ${formatDate(toDate)}`;
+
   // 기간 내 기사 집계
   const countMap = {};
   state.articles.forEach(a => {
@@ -1127,10 +1147,8 @@ function renderRankingTable(countMap, prevMap) {
   const sorted = Object.entries(countMap).sort((a, b) => b[1].count - a[1].count);
   const maxCount = sorted[0]?.[1]?.count || 1;
   const tbody = document.getElementById('ranking-body');
-
-  // 이번주 / 지난주 비교용
-  const thisWeekFrom = getDateFrom(7);
-  const lastWeekFrom = getDateFrom(14);
+  const totalArticles = state.articles.length;
+  const isTruncated = totalArticles % 1000 === 0 && totalArticles >= 1000;
 
   tbody.innerHTML = sorted.map(([jid, info], i) => {
     const rank = i + 1;
@@ -1140,6 +1158,7 @@ function renderRankingTable(countMap, prevMap) {
     const outlet = journalist?.outlet || info.outlet || '';
     const prevCount = prevMap[jid] || 0;
     const delta = info.count - prevCount;
+    const countDisplay = isTruncated ? `${info.count}+` : info.count;
 
     return `<tr class="journalist-row" onclick="openDetail('${jid}')">
       <td class="rank-num ${rank <= 3 ? 'top3' : ''}">${rank}</td>
@@ -1150,7 +1169,7 @@ function renderRankingTable(countMap, prevMap) {
       <td class="bar-cell">
         <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
       </td>
-      <td class="count-cell">${info.count}</td>
+      <td class="count-cell">${countDisplay}</td>
       <td class="delta-cell">${deltaText(delta)}</td>
     </tr>`;
   }).join('');
