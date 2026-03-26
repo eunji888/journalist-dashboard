@@ -951,6 +951,8 @@ async function loadJournalists() {
 
 // ── Data Loading ───────────────────────────────────────────────────────────
 
+let _loadGeneration = 0;
+
 async function fetchAllArticles(from) {
   const PAGE = 1000;
   let all = [];
@@ -979,8 +981,11 @@ async function fetchAllArticles(from) {
 }
 
 async function loadAndRender() {
+  const gen = ++_loadGeneration;
   const from = getDateFrom(state.filterDays);
-  state.articles = await fetchAllArticles(from);
+  const articles = await fetchAllArticles(from);
+  if (gen !== _loadGeneration) return;
+  state.articles = articles;
   renderAll();
 }
 
@@ -1100,6 +1105,7 @@ function renderRanking() {
   const prevTo = getDateFrom(state.filterDays);
 
   // 전주 데이터 조회 (비동기이지만 랭킹 먼저 렌더)
+  const rankingGen = _loadGeneration;
   renderRankingTable(countMap, {});
 
   state.supabase
@@ -1108,6 +1114,7 @@ function renderRanking() {
     .gte(CONFIG.COL_PUBLISHED_AT, prevFrom)
     .lt(CONFIG.COL_PUBLISHED_AT, prevTo)
     .then(({ data }) => {
+      if (rankingGen !== _loadGeneration) return;
       const prevMap = {};
       (data || []).forEach(a => {
         prevMap[a[CONFIG.COL_JOURNALIST_ID]] = (prevMap[a[CONFIG.COL_JOURNALIST_ID]] || 0) + 1;
