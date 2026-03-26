@@ -1381,15 +1381,13 @@ function setFilter(days) {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
-(function boot() {
-  const savedUrl = localStorage.getItem('sb_url');
-  const savedKey = localStorage.getItem('sb_key');
+const DEFAULT_URL = 'https://yceweteoswuzsyvybumg.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_AQFPPkPx6eF0UI3cnshGGA_fESquPW-';
 
-  if (savedUrl && savedKey) {
-    document.getElementById('input-url').value = savedUrl;
-    document.getElementById('input-key').value = savedKey;
-    initDashboard(savedUrl, savedKey);
-  }
+(function boot() {
+  const url = localStorage.getItem('sb_url') || DEFAULT_URL;
+  const key = localStorage.getItem('sb_key') || DEFAULT_KEY;
+  initDashboard(url, key);
 })();
 </script>
 </body>
