@@ -951,21 +951,36 @@ async function loadJournalists() {
 
 // ── Data Loading ───────────────────────────────────────────────────────────
 
-async function loadAndRender() {
-  const from = getDateFrom(state.filterDays);
+async function fetchAllArticles(from) {
+  const PAGE = 1000;
+  let all = [];
+  let offset = 0;
 
-  const { data, error } = await state.supabase
-    .from(CONFIG.TABLE_ARTICLES)
-    .select(`${CONFIG.COL_JOURNALIST_ID}, ${CONFIG.COL_REPORTER_NAME}, ${CONFIG.COL_TITLE}, ${CONFIG.COL_PUBLISHED_AT}, ${CONFIG.COL_SECTION}, ${CONFIG.COL_OUTLET}`)
-    .gte(CONFIG.COL_PUBLISHED_AT, from)
-    .order(CONFIG.COL_PUBLISHED_AT, { ascending: false });
+  while (true) {
+    const { data, error } = await state.supabase
+      .from(CONFIG.TABLE_ARTICLES)
+      .select(`${CONFIG.COL_JOURNALIST_ID}, ${CONFIG.COL_REPORTER_NAME}, ${CONFIG.COL_TITLE}, ${CONFIG.COL_PUBLISHED_AT}, ${CONFIG.COL_SECTION}, ${CONFIG.COL_OUTLET}`)
+      .gte(CONFIG.COL_PUBLISHED_AT, from)
+      .order(CONFIG.COL_PUBLISHED_AT, { ascending: false })
+      .range(offset, offset + PAGE - 1);
 
-  if (error) {
-    console.error('articles load error:', error);
-    return;
+    if (error) {
+      console.error('articles fetch error:', error);
+      break;
+    }
+
+    all = all.concat(data || []);
+
+    if (!data || data.length < PAGE) break;
+    offset += PAGE;
   }
 
-  state.articles = data || [];
+  return all;
+}
+
+async function loadAndRender() {
+  const from = getDateFrom(state.filterDays);
+  state.articles = await fetchAllArticles(from);
   renderAll();
 }
 
