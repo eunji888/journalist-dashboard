@@ -209,6 +209,20 @@
     font-weight: 600;
   }
 
+  .btn-share {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .btn-share:hover { color: var(--accent); border-color: var(--accent); }
+
   .btn-settings {
     background: var(--surface2);
     border: 1px solid var(--border);
@@ -1269,6 +1283,7 @@
         <input type="date" id="date-to">
         <button class="btn-apply-date" onclick="applyCustomDate()">적용</button>
       </div>
+      <button class="btn-share" id="btn-share" onclick="copyShareLink()" aria-label="공유 링크 복사" title="현재 뷰 공유 링크 복사">🔗 공유</button>
       <button class="btn-settings" onclick="resetSettings()" aria-label="연결 설정 초기화">설정 초기화</button>
     </div>
   </header>
@@ -1606,10 +1621,15 @@ async function initDashboard(url, key) {
 
   state.supabase = window.supabase.createClient(url, key);
 
+  restoreStateFromURL();
   showLoading('연결 중...');
   try {
     await Promise.all([loadJournalists(), loadAndRender()]);
     subscribeRealtime();
+    if (state._pendingJournalist) {
+      openDetail(state._pendingJournalist);
+      delete state._pendingJournalist;
+    }
   } catch (e) {
     showToast(`초기화 오류: ${e.message}`);
   } finally {
@@ -2567,6 +2587,67 @@ function applyCustomDate() {
   btnCustom.textContent = `${from.slice(5)} ~ ${to.slice(5)}`;
 
   loadAndRender();
+}
+
+// ── Share / URL State ──────────────────────────────────────────────────────
+
+function buildShareURL() {
+  const params = new URLSearchParams();
+  if (state.customRange) {
+    params.set('from', state.customRange.from);
+    params.set('to',   state.customRange.to);
+  } else {
+    params.set('days', state.filterDays);
+  }
+  if (state.selectedJournalist) params.set('journalist', state.selectedJournalist);
+  return `${location.origin}${location.pathname}?${params.toString()}`;
+}
+
+function copyShareLink() {
+  const url = buildShareURL();
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('공유 링크가 클립보드에 복사됐습니다.');
+  }).catch(() => {
+    // fallback for non-https
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showToast('공유 링크가 클립보드에 복사됐습니다.');
+  });
+}
+
+function restoreStateFromURL() {
+  const params = new URLSearchParams(location.search);
+  if (params.has('from') && params.has('to')) {
+    state.customRange = { from: params.get('from'), to: params.get('to') };
+    const btnCustom = document.getElementById('btn-custom-date');
+    if (btnCustom) {
+      btnCustom.classList.add('active');
+      btnCustom.setAttribute('aria-pressed', 'true');
+      btnCustom.textContent = `${state.customRange.from.slice(5)} ~ ${state.customRange.to.slice(5)}`;
+      document.querySelectorAll('.filter-btn[data-days]').forEach(b => {
+        b.classList.remove('active'); b.setAttribute('aria-pressed', 'false');
+      });
+    }
+  } else if (params.has('days')) {
+    const days = parseInt(params.get('days'));
+    if ([1, 7, 30, 90].includes(days)) {
+      state.filterDays = days;
+      document.querySelectorAll('.filter-btn[data-days]').forEach(btn => {
+        const isActive = parseInt(btn.dataset.days) === days;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive);
+      });
+    }
+  }
+  if (params.has('journalist')) {
+    state._pendingJournalist = params.get('journalist');
+  }
 }
 
 // ── Natural Language Query ──────────────────────────────────────────────────
