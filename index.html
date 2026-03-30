@@ -975,6 +975,57 @@
   /* Trend badge in ranking row */
   .trend-badge { font-size: 11px; margin-left: 4px; vertical-align: middle; }
 
+  /* Natural Language Query */
+  .nl-query-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 20px;
+  }
+
+  .nl-input-wrap { display: flex; gap: 8px; }
+
+  .nl-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .nl-input:focus { border-color: var(--accent); }
+  .nl-input::placeholder { color: var(--text-muted); }
+
+  .nl-interpreted {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 10px 0 8px;
+    padding: 6px 10px;
+    background: var(--surface2);
+    border-radius: 6px;
+    border-left: 2px solid var(--accent);
+  }
+
+  .nl-result-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .nl-result-row:last-child { border-bottom: none; }
+  .nl-result-row:hover { background: var(--accent-dim); }
+
   /* Compare checkbox */
   .compare-check-cell { width: 24px; padding-right: 4px !important; }
   .compare-checkbox { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); vertical-align: middle; }
@@ -1314,6 +1365,21 @@
             <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">데이터 로딩 중...</td></tr>
           </tbody>
         </table>
+      </div>
+      <!-- Natural Language Query -->
+      <div class="nl-query-section">
+        <div class="section-title" style="margin-bottom:12px">자연어 질의</div>
+        <div class="nl-input-wrap">
+          <input type="text" id="nl-input" class="nl-input"
+            placeholder="예: 지난주 경제 섹션 기자 top 5 / 크립토허브 기사 적게 쓴 기자 3명"
+            onkeydown="if(event.key==='Enter')runNLQuery()"
+            aria-label="자연어 질의 입력">
+          <button class="btn-apply-date" onclick="runNLQuery()">검색</button>
+        </div>
+        <div id="nl-result" style="display:none">
+          <div class="nl-interpreted" id="nl-interpreted"></div>
+          <div id="nl-result-body"></div>
+        </div>
       </div>
     </div>
 
@@ -2501,6 +2567,121 @@ function applyCustomDate() {
   btnCustom.textContent = `${from.slice(5)} ~ ${to.slice(5)}`;
 
   loadAndRender();
+}
+
+// ── Natural Language Query ──────────────────────────────────────────────────
+
+const NL_SECTION_ALIASES = {
+  '경제': '경제', '마켓': '마켓시그널', '마켓시그널': '마켓시그널',
+  '세계': '세계', '종합': '종합', '증권': '증권',
+  'it': 'IT', 'IT': 'IT',
+  '크립토': '크립토허브', '크립토허브': '크립토허브',
+  '사회': '사회', '정치': '정치', '문화': '문화', '스포츠': '스포츠',
+};
+
+function parseNLQuery(text) {
+  const q = text.toLowerCase();
+  const parsed = { period: null, section: null, topN: 10, sortDir: 'desc', journalistName: null };
+
+  // 기간
+  const nDayMatch = q.match(/최근\s*(\d+)\s*일/);
+  if (nDayMatch) parsed.period = parseInt(nDayMatch[1]);
+  else if (q.includes('지난주') || q.includes('이번주')) parsed.period = 7;
+  else if (q.includes('지난달') || q.includes('이번달')) parsed.period = 30;
+  else if (q.includes('지난 3달') || q.includes('3개월')) parsed.period = 90;
+
+  // 섹션
+  for (const [alias, canonical] of Object.entries(NL_SECTION_ALIASES)) {
+    if (q.includes(alias.toLowerCase())) { parsed.section = canonical; break; }
+  }
+
+  // Top N
+  const topMatch = q.match(/top\s*(\d+)|상위\s*(\d+)|(\d+)\s*명|(\d+)\s*위/);
+  if (topMatch) parsed.topN = parseInt(topMatch[1] ?? topMatch[2] ?? topMatch[3] ?? topMatch[4]);
+
+  // 정렬 방향
+  if (q.includes('적게') || q.includes('낮은') || q.includes('최소') || q.includes('가장 안')) parsed.sortDir = 'asc';
+
+  // 기자명 매칭
+  for (const j of Object.values(state.journalists)) {
+    if (j.name && text.includes(j.name)) { parsed.journalistName = j.name; break; }
+  }
+
+  return parsed;
+}
+
+function runNLQuery() {
+  const inputEl = document.getElementById('nl-input');
+  const input = inputEl.value.trim();
+  if (!input) return;
+
+  const p = parseNLQuery(input);
+  const resultEl   = document.getElementById('nl-result');
+  const bodyEl     = document.getElementById('nl-result-body');
+  const interpretEl = document.getElementById('nl-interpreted');
+
+  // 기사 필터링
+  let articles = [...state.articles];
+
+  if (p.period) {
+    const cutoff = getDateFrom(p.period);
+    articles = articles.filter(a => a[CONFIG.COL_PUBLISHED_AT] >= cutoff);
+  }
+  if (p.section) {
+    articles = articles.filter(a => a[CONFIG.COL_SECTION] === p.section);
+  }
+
+  // 기자별 집계
+  const countMap = {};
+  articles.forEach(a => {
+    const jid = a[CONFIG.COL_JOURNALIST_ID];
+    if (!countMap[jid]) {
+      const j = state.journalists[jid];
+      countMap[jid] = {
+        count: 0,
+        name:   j?.name   || a[CONFIG.COL_REPORTER_NAME] || '알 수 없음',
+        outlet: j?.outlet || a[CONFIG.COL_OUTLET]        || '',
+      };
+    }
+    countMap[jid].count++;
+  });
+
+  let sorted = Object.entries(countMap)
+    .sort((a, b) => p.sortDir === 'desc' ? b[1].count - a[1].count : a[1].count - b[1].count);
+
+  if (p.journalistName) {
+    sorted = sorted.filter(([, info]) => info.name.includes(p.journalistName));
+  }
+
+  const top = sorted.slice(0, p.topN);
+
+  // 해석 문장
+  const parts = [];
+  if (p.period) parts.push(`최근 ${p.period}일`);
+  if (p.section) parts.push(`${p.section} 섹션`);
+  parts.push(`기사 ${p.sortDir === 'desc' ? '많이 쓴' : '적게 쓴'} 기자 상위 ${p.topN}명`);
+  interpretEl.textContent = `해석: ${parts.join(' · ')}  (기준 기사 수: ${articles.length}건)`;
+
+  if (!top.length) {
+    bodyEl.innerHTML = '<div class="state-box" style="padding:16px 0"><div class="state-desc">조건에 맞는 결과가 없습니다</div></div>';
+  } else {
+    const maxCount = top[0][1].count;
+    bodyEl.innerHTML = top.map(([jid, info], i) => `
+      <div class="nl-result-row" onclick="openDetail('${jid}')">
+        <span style="font-family:var(--mono);color:var(--text-muted);width:20px;flex-shrink:0">${i + 1}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600">${info.name}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${info.outlet}</div>
+        </div>
+        <div style="width:80px;background:var(--surface2);border-radius:4px;height:5px;overflow:hidden;flex-shrink:0">
+          <div style="width:${Math.round(info.count / maxCount * 100)}%;background:var(--accent);height:100%;border-radius:4px"></div>
+        </div>
+        <span style="font-family:var(--mono);color:var(--accent);font-weight:600;width:32px;text-align:right;flex-shrink:0">${info.count}</span>
+      </div>
+    `).join('');
+  }
+
+  resultEl.style.display = 'block';
 }
 
 // ── Realtime ───────────────────────────────────────────────────────────────
