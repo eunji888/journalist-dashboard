@@ -1978,7 +1978,8 @@ function renderBriefing() {
   const journalistCounts = {};
   state.articles.forEach(a => {
     const jid = a[CONFIG.COL_JOURNALIST_ID];
-    if (!journalistCounts[jid]) journalistCounts[jid] = { count: 0, name: a[CONFIG.COL_REPORTER_NAME], outlet: a[CONFIG.COL_OUTLET] };
+    if (!jid) return;
+    if (!journalistCounts[jid]) journalistCounts[jid] = { count: 0, name: a[CONFIG.COL_REPORTER_NAME] || state.journalists[jid]?.name, outlet: a[CONFIG.COL_OUTLET] };
     journalistCounts[jid].count++;
   });
   const activeCount = Object.keys(journalistCounts).length;
@@ -2035,7 +2036,7 @@ function formatDate(d) {
 function renderStats() {
   const total = state.articles.length;
   const isTruncated = total % 1000 === 0 && total >= 1000;
-  const activeJournalists = new Set(state.articles.map(a => a[CONFIG.COL_JOURNALIST_ID])).size;
+  const activeJournalists = new Set(state.articles.map(a => a[CONFIG.COL_JOURNALIST_ID]).filter(Boolean)).size;
   const dailyAvg = (total / state.filterDays).toFixed(1);
 
   const toDate = new Date();
@@ -2172,7 +2173,8 @@ function renderRanking() {
   const countMap = {};
   state.articles.forEach(a => {
     const jid = a[CONFIG.COL_JOURNALIST_ID];
-    if (!countMap[jid]) countMap[jid] = { count: 0, name: a[CONFIG.COL_REPORTER_NAME], outlet: a[CONFIG.COL_OUTLET] };
+    if (!jid) return;
+    if (!countMap[jid]) countMap[jid] = { count: 0, name: a[CONFIG.COL_REPORTER_NAME] || state.journalists[jid]?.name, outlet: a[CONFIG.COL_OUTLET] };
     countMap[jid].count++;
   });
 
