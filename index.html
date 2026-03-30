@@ -219,6 +219,66 @@
     cursor: pointer;
   }
 
+  /* Date picker popup */
+  .header-right { position: relative; }
+
+  .date-picker-popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    z-index: 500;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+  }
+
+  .date-picker-popup label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .date-picker-popup input[type="date"] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    color-scheme: dark;
+    transition: border-color 0.15s;
+  }
+
+  .date-picker-popup input[type="date"]:focus { border-color: var(--accent); }
+
+  .date-picker-sep { color: var(--text-muted); font-size: 14px; }
+
+  .btn-apply-date {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    color: #fff;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn-apply-date:hover { opacity: 0.85; }
+
   /* Main layout */
   .main {
     display: grid;
@@ -843,6 +903,15 @@
         <button class="filter-btn active" data-days="7" onclick="setFilter(7)" aria-pressed="true">7일</button>
         <button class="filter-btn" data-days="30" onclick="setFilter(30)" aria-pressed="false">30일</button>
         <button class="filter-btn" data-days="90" onclick="setFilter(90)" aria-pressed="false">90일</button>
+        <button class="filter-btn" id="btn-custom-date" onclick="toggleDatePicker()" aria-pressed="false" aria-label="직접 날짜 범위 선택">직접 선택</button>
+      </div>
+      <div id="date-picker-popup" class="date-picker-popup" style="display:none" role="dialog" aria-label="날짜 범위 선택">
+        <label for="date-from">시작</label>
+        <input type="date" id="date-from">
+        <span class="date-picker-sep">~</span>
+        <label for="date-to">종료</label>
+        <input type="date" id="date-to">
+        <button class="btn-apply-date" onclick="applyCustomDate()">적용</button>
       </div>
       <button class="btn-settings" onclick="resetSettings()" aria-label="연결 설정 초기화">설정 초기화</button>
     </div>
@@ -986,6 +1055,7 @@ const state = {
   selectedJournalist: null,
   cache: {},
   CACHE_TTL: 5 * 60 * 1000,
+  customRange: null,   // { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
 };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -1044,6 +1114,32 @@ function getDateFrom(days) {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
+}
+
+function getFilterRange() {
+  if (state.customRange) {
+    return {
+      from: state.customRange.from + 'T00:00:00.000Z',
+      to:   state.customRange.to   + 'T23:59:59.999Z',
+    };
+  }
+  return { from: getDateFrom(state.filterDays), to: null };
+}
+
+function getPrevPeriodRange() {
+  if (state.customRange) {
+    const fromMs = new Date(state.customRange.from).getTime();
+    const toMs   = new Date(state.customRange.to).getTime();
+    const duration = toMs - fromMs + 86400000; // 범위 길이 (ms)
+    return {
+      from: new Date(fromMs - duration).toISOString(),
+      to:   new Date(fromMs).toISOString(),
+    };
+  }
+  return {
+    from: getDateFrom(state.filterDays * 2),
+    to:   getDateFrom(state.filterDays),
+  };
 }
 
 
@@ -1135,19 +1231,22 @@ async function loadJournalists() {
 
 let _loadGeneration = 0;
 
-async function fetchAllArticles(from) {
+async function fetchAllArticles(from, to = null) {
   const PAGE = 1000;
   let all = [];
   let offset = 0;
 
   while (true) {
-    const { data, error } = await state.supabase
+    let q = state.supabase
       .from(CONFIG.TABLE_ARTICLES)
       .select(`${CONFIG.COL_JOURNALIST_ID}, ${CONFIG.COL_REPORTER_NAME}, ${CONFIG.COL_TITLE}, ${CONFIG.COL_PUBLISHED_AT}, ${CONFIG.COL_SECTION}, ${CONFIG.COL_OUTLET}`)
       .gte(CONFIG.COL_PUBLISHED_AT, from)
       .order(CONFIG.COL_PUBLISHED_AT, { ascending: false })
       .range(offset, offset + PAGE - 1);
 
+    if (to) q = q.lte(CONFIG.COL_PUBLISHED_AT, to);
+
+    const { data, error } = await q;
     if (error) throw new Error(error.message);
 
     all = all.concat(data || []);
@@ -1161,7 +1260,9 @@ async function fetchAllArticles(from) {
 
 async function loadAndRender() {
   const gen = ++_loadGeneration;
-  const cacheKey = state.filterDays;
+  const cacheKey = state.customRange
+    ? `custom_${state.customRange.from}_${state.customRange.to}`
+    : state.filterDays;
   const cached = state.cache[cacheKey];
 
   if (cached && (Date.now() - cached.ts) < state.CACHE_TTL) {
@@ -1175,8 +1276,8 @@ async function loadAndRender() {
   showChartSkeleton('chart-hourly');
   showChartSkeleton('chart-section');
   try {
-    const from = getDateFrom(state.filterDays);
-    const articles = await fetchAllArticles(from);
+    const { from, to } = getFilterRange();
+    const articles = await fetchAllArticles(from, to);
     if (gen !== _loadGeneration) return;
     state.cache[cacheKey] = { articles, ts: Date.now() };
     state.articles = articles;
@@ -1346,9 +1447,8 @@ function renderRanking() {
     countMap[jid].count++;
   });
 
-  // 이전 기간 (주간 증감용)
-  const prevFrom = getDateFrom(state.filterDays * 2);
-  const prevTo = getDateFrom(state.filterDays);
+  // 이전 기간 (증감용)
+  const { from: prevFrom, to: prevTo } = getPrevPeriodRange();
 
   // 전주 데이터 조회 (비동기이지만 랭킹 먼저 렌더)
   const rankingGen = _loadGeneration;
@@ -1608,15 +1708,21 @@ function buildSummary(journalist, articles, categories) {
   const total = articles.length;
   const days = state.filterDays;
 
-  const toDate = new Date();
-  const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - days);
-  const period = `${fromDate.getMonth()+1}월 ${fromDate.getDate()}일~${toDate.getMonth()+1}월 ${toDate.getDate()}일`;
+  let period;
+  if (state.customRange) {
+    period = `${state.customRange.from} ~ ${state.customRange.to}`;
+  } else {
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+    period = `${fromDate.getMonth()+1}월 ${fromDate.getDate()}일~${toDate.getMonth()+1}월 ${toDate.getDate()}일`;
+  }
 
   const top = categories[0];
   const topPct = top ? Math.round(top[1] / total * 100) : 0;
 
-  let summary = `${outlet} ${name} 기자의 최근 ${days}일(${period}) 기사 ${total}건을 분석한 결과입니다.`;
+  const periodLabel = state.customRange ? `지정 기간(${period})` : `최근 ${days}일(${period})`;
+  let summary = `${outlet} ${name} 기자의 ${periodLabel} 기사 ${total}건을 분석한 결과입니다.`;
   if (top && topPct >= 20) {
     summary += ` 전체 기사의 ${topPct}%가 <strong>${top[0]}</strong> 분야에 집중되어 있습니다.`;
   }
@@ -1664,7 +1770,13 @@ function renderAnalysis(journalist, articles) {
 
 function setFilter(days) {
   state.filterDays = days;
-  document.querySelectorAll('.filter-btn').forEach(btn => {
+  state.customRange = null;
+  document.getElementById('date-picker-popup').style.display = 'none';
+  const btnCustom = document.getElementById('btn-custom-date');
+  btnCustom.classList.remove('active');
+  btnCustom.setAttribute('aria-pressed', 'false');
+  btnCustom.textContent = '직접 선택';
+  document.querySelectorAll('.filter-btn[data-days]').forEach(btn => {
     const isActive = parseInt(btn.dataset.days) === days;
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-pressed', isActive);
@@ -1672,7 +1784,52 @@ function setFilter(days) {
   loadAndRender();
 }
 
+function toggleDatePicker() {
+  const popup = document.getElementById('date-picker-popup');
+  const isOpen = popup.style.display !== 'none';
+  popup.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) {
+    const today = new Date().toISOString().slice(0, 10);
+    const weekAgo = getDateFrom(7).slice(0, 10);
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    if (!fromInput.value) fromInput.value = state.customRange?.from || weekAgo;
+    if (!toInput.value) toInput.value = state.customRange?.to || today;
+  }
+}
+
+function applyCustomDate() {
+  const from = document.getElementById('date-from').value;
+  const to   = document.getElementById('date-to').value;
+  if (!from || !to) { showToast('시작일과 종료일을 모두 선택해주세요.'); return; }
+  if (from > to)    { showToast('시작일이 종료일보다 늦을 수 없습니다.'); return; }
+
+  state.customRange = { from, to };
+  document.getElementById('date-picker-popup').style.display = 'none';
+
+  document.querySelectorAll('.filter-btn[data-days]').forEach(btn => {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+  const btnCustom = document.getElementById('btn-custom-date');
+  btnCustom.classList.add('active');
+  btnCustom.setAttribute('aria-pressed', 'true');
+  btnCustom.textContent = `${from.slice(5)} ~ ${to.slice(5)}`;
+
+  loadAndRender();
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
+
+// 팝업 외부 클릭 시 닫기
+document.addEventListener('click', (e) => {
+  const popup = document.getElementById('date-picker-popup');
+  const btnCustom = document.getElementById('btn-custom-date');
+  if (!popup || popup.style.display === 'none') return;
+  if (!popup.contains(e.target) && e.target !== btnCustom) {
+    popup.style.display = 'none';
+  }
+});
 
 (function boot() {
   const url = localStorage.getItem('sb_url');
