@@ -318,11 +318,40 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 16px;
+    position: relative;
   }
 
   .chart-card canvas {
     max-height: 200px;
   }
+
+  /* Chart empty / skeleton overlay */
+  .chart-overlay {
+    position: absolute;
+    inset: 44px 16px 16px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: var(--surface);
+  }
+
+  .chart-overlay .state-icon { font-size: 22px; opacity: 0.4; line-height: 1; }
+  .chart-overlay .state-desc { font-size: 11px; color: var(--text-muted); }
+
+  /* Skeleton chart placeholder */
+  .skeleton-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 140px;
+    width: 100%;
+    padding: 0 4px;
+  }
+
+  .skeleton-bar { flex: 1; border-radius: 3px 3px 0 0; }
 
   /* Ranking table */
   .ranking-card {
@@ -851,10 +880,18 @@
         <div class="chart-card">
           <div class="section-title">시간대별 발행 패턴</div>
           <canvas id="chart-hourly"></canvas>
+          <div class="chart-overlay" id="chart-hourly-overlay" style="display:none">
+            <div class="state-icon">📊</div>
+            <div class="state-desc">기간 내 데이터 없음</div>
+          </div>
         </div>
         <div class="chart-card">
           <div class="section-title">섹션별 분포</div>
           <canvas id="chart-section"></canvas>
+          <div class="chart-overlay" id="chart-section-overlay" style="display:none">
+            <div class="state-icon">🗂</div>
+            <div class="state-desc">기간 내 데이터 없음</div>
+          </div>
         </div>
       </div>
 
@@ -962,6 +999,36 @@ function hideLoading() {
   document.getElementById('loading-overlay').style.display = 'none';
 }
 
+function showRankingSkeleton() {
+  const widths = [96, 112, 78, 100, 84, 108, 72];
+  document.getElementById('ranking-body').innerHTML = widths.map(w => `
+    <tr>
+      <td><div class="skeleton" style="width:18px;height:13px;border-radius:3px;"></div></td>
+      <td>
+        <div class="skeleton" style="width:${w}px;height:13px;border-radius:3px;margin-bottom:5px;"></div>
+        <div class="skeleton" style="width:56px;height:10px;border-radius:3px;"></div>
+      </td>
+      <td class="bar-cell"><div class="skeleton" style="height:6px;border-radius:4px;"></div></td>
+      <td><div class="skeleton" style="width:28px;height:13px;border-radius:3px;margin-left:auto;"></div></td>
+      <td><div class="skeleton" style="width:38px;height:12px;border-radius:3px;margin-left:auto;"></div></td>
+    </tr>
+  `).join('');
+}
+
+function showChartSkeleton(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  const overlay = document.getElementById(canvasId + '-overlay');
+  canvas.style.display = 'none';
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="skeleton-chart">
+      ${[40,65,55,80,45,90,70,60,85,50,75,95,55,40,70,65,80,50,60,45,85,70,55,40]
+        .map(h => `<div class="skeleton skeleton-bar" style="height:${h}%;"></div>`)
+        .join('')}
+    </div>
+  `;
+}
+
 function showContentError(msg) {
   document.getElementById('ranking-body').innerHTML = `<tr><td colspan="5">
     <div class="state-box">
@@ -1043,11 +1110,13 @@ async function initDashboard(url, key) {
 
   state.supabase = window.supabase.createClient(url, key);
 
+  showLoading('연결 중...');
   try {
     await Promise.all([loadJournalists(), loadAndRender()]);
   } catch (e) {
-    hideLoading();
     showToast(`초기화 오류: ${e.message}`);
+  } finally {
+    hideLoading();
   }
 }
 
@@ -1102,7 +1171,9 @@ async function loadAndRender() {
     return;
   }
 
-  showLoading('기사 데이터 로딩 중...');
+  showRankingSkeleton();
+  showChartSkeleton('chart-hourly');
+  showChartSkeleton('chart-section');
   try {
     const from = getDateFrom(state.filterDays);
     const articles = await fetchAllArticles(from);
@@ -1114,8 +1185,6 @@ async function loadAndRender() {
     if (gen !== _loadGeneration) return;
     showContentError(e.message);
     showToast(`데이터 로드 실패: ${e.message}`);
-  } finally {
-    if (gen === _loadGeneration) hideLoading();
   }
 }
 
@@ -1163,13 +1232,27 @@ function renderStats() {
 }
 
 function renderHourlyChart() {
+  const canvas = document.getElementById('chart-hourly');
+  const overlay = document.getElementById('chart-hourly-overlay');
+
+  if (state.articles.length === 0) {
+    if (state.charts.hourly) { state.charts.hourly.destroy(); state.charts.hourly = null; }
+    canvas.style.display = 'none';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="state-icon">📊</div><div class="state-desc">기간 내 데이터 없음</div>';
+    return;
+  }
+
+  canvas.style.display = '';
+  overlay.style.display = 'none';
+
   const hours = Array(24).fill(0);
   state.articles.forEach(a => {
     const h = new Date(a[CONFIG.COL_PUBLISHED_AT]).getHours();
     hours[h]++;
   });
 
-  const ctx = document.getElementById('chart-hourly').getContext('2d');
+  const ctx = canvas.getContext('2d');
   if (state.charts.hourly) state.charts.hourly.destroy();
 
   state.charts.hourly = new Chart(ctx, {
@@ -1198,6 +1281,20 @@ function renderHourlyChart() {
 }
 
 function renderSectionChart() {
+  const canvas = document.getElementById('chart-section');
+  const overlay = document.getElementById('chart-section-overlay');
+
+  if (state.articles.length === 0) {
+    if (state.charts.section) { state.charts.section.destroy(); state.charts.section = null; }
+    canvas.style.display = 'none';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="state-icon">🗂</div><div class="state-desc">기간 내 데이터 없음</div>';
+    return;
+  }
+
+  canvas.style.display = '';
+  overlay.style.display = 'none';
+
   const counts = {};
   state.articles.forEach(a => {
     const s = a[CONFIG.COL_SECTION] || '미분류';
@@ -1207,7 +1304,7 @@ function renderSectionChart() {
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const colors = ['#4f8ef7', '#2ecc8f', '#f5a623', '#e85d5d', '#a78bfa', '#fb923c', '#34d399'];
 
-  const ctx = document.getElementById('chart-section').getContext('2d');
+  const ctx = canvas.getContext('2d');
   if (state.charts.section) state.charts.section.destroy();
 
   state.charts.section = new Chart(ctx, {
