@@ -1282,6 +1282,78 @@
     .ranking-table th:nth-child(3) { display: none; }
     .setup-card { padding: 24px 16px; }
   }
+
+  /* Alert Rules */
+  .alert-rules-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 20px;
+  }
+  .alert-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(245,166,35,0.1);
+    border: 1px solid rgba(245,166,35,0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    animation: fadeIn 0.3s ease;
+  }
+  .alert-banner-icon { font-size: 15px; flex-shrink: 0; }
+  .alert-banner-text { flex: 1; color: var(--amber); font-weight: 500; }
+  .alert-banner-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .alert-banner-close:hover { color: var(--amber); }
+  .alert-rules-list { margin-bottom: 14px; }
+  .alert-rule-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .alert-rule-desc { flex: 1; }
+  .alert-rule-type { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .btn-remove-alert {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 4px;
+    transition: color 0.15s;
+  }
+  .btn-remove-alert:hover { color: var(--red); }
+  .alert-add-form { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 4px; }
+  .alert-add-form select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    outline: none;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  #alert-fired-list:empty { display: none; }
 </style>
 </head>
 <body>
@@ -1528,6 +1600,37 @@
           <div id="nl-result-body"></div>
         </div>
       </div>
+
+      <!-- Alert Rules -->
+      <div class="alert-rules-section">
+        <div class="benchmark-header" style="margin-bottom:12px">
+          <div class="section-title" style="margin-bottom:0">알림 규칙</div>
+        </div>
+        <!-- Fired Alerts -->
+        <div id="alert-fired-list" aria-live="polite"></div>
+        <!-- Rule List -->
+        <div class="alert-rules-list" id="alert-rules-list">
+          <div style="color:var(--text-muted);font-size:13px;padding:4px 0 10px">등록된 알림 규칙이 없습니다.</div>
+        </div>
+        <!-- Add Form -->
+        <div class="alert-add-form">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">규칙 추가</div>
+          <select id="alert-type" onchange="toggleAlertJournalistField()" aria-label="알림 유형">
+            <option value="total_gte">기간 내 전체 기사 수 ≥ N건</option>
+            <option value="total_lte">기간 내 전체 기사 수 ≤ N건</option>
+            <option value="journalist_gte">특정 기자 기사 수 ≥ N건/일</option>
+            <option value="journalist_lte">특정 기자 기사 수 ≤ N건/일</option>
+          </select>
+          <div id="alert-journalist-field" style="display:none;margin-bottom:8px">
+            <input type="text" id="alert-journalist-name" placeholder="기자 이름 (일부 입력 가능)" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:var(--font);font-size:13px;outline:none" aria-label="기자 이름">
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <input type="number" id="alert-threshold" min="1" placeholder="임계값 (예: 5)" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:var(--font);font-size:13px;outline:none" aria-label="임계값">
+            <button class="btn-apply-date" onclick="addAlertRule()">추가</button>
+          </div>
+          <div class="setup-error" id="alert-error"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Sidebar -->
@@ -1754,6 +1857,7 @@ async function initDashboard(url, key) {
   state.supabase = window.supabase.createClient(url, key);
 
   restoreStateFromURL();
+  renderAlertRulesList();
   showLoading('연결 중...');
   try {
     await Promise.all([loadJournalists(), loadAndRender()]);
@@ -1855,6 +1959,7 @@ function renderAll() {
   if (document.getElementById('benchmark-section').classList.contains('visible')) {
     renderBenchmarkChart();
   }
+  evaluateAlertRules();
 }
 
 function renderBriefing() {
@@ -3091,6 +3196,154 @@ async function renderBenchmarkChart() {
       },
     },
   });
+}
+
+// ── Alert Rules ────────────────────────────────────────────────────────────
+
+function loadAlertRules() {
+  try {
+    return JSON.parse(localStorage.getItem('alert_rules') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveAlertRules(rules) {
+  localStorage.setItem('alert_rules', JSON.stringify(rules));
+}
+
+function toggleAlertJournalistField() {
+  const type = document.getElementById('alert-type').value;
+  const show = type === 'journalist_gte' || type === 'journalist_lte';
+  document.getElementById('alert-journalist-field').style.display = show ? 'block' : 'none';
+}
+
+function addAlertRule() {
+  const type      = document.getElementById('alert-type').value;
+  const threshold = parseInt(document.getElementById('alert-threshold').value);
+  const errEl     = document.getElementById('alert-error');
+
+  if (!threshold || threshold < 1) {
+    errEl.textContent = '임계값을 1 이상 입력하세요.';
+    return;
+  }
+
+  const isJournalistRule = type === 'journalist_gte' || type === 'journalist_lte';
+  const journalistName = isJournalistRule
+    ? document.getElementById('alert-journalist-name').value.trim()
+    : '';
+
+  if (isJournalistRule && !journalistName) {
+    errEl.textContent = '기자 이름을 입력하세요.';
+    return;
+  }
+
+  errEl.textContent = '';
+
+  const TYPE_LABELS = {
+    total_gte:      `전체 기사 수 ≥ ${threshold}건`,
+    total_lte:      `전체 기사 수 ≤ ${threshold}건`,
+    journalist_gte: `${journalistName} 기자 ≥ ${threshold}건/일`,
+    journalist_lte: `${journalistName} 기자 ≤ ${threshold}건/일`,
+  };
+
+  const rules = loadAlertRules();
+  saveAlertRules([...rules, { type, threshold, journalistName, label: TYPE_LABELS[type] }]);
+
+  document.getElementById('alert-threshold').value = '';
+  document.getElementById('alert-journalist-name').value = '';
+
+  renderAlertRulesList();
+  evaluateAlertRules();
+}
+
+function removeAlertRule(index) {
+  const rules = loadAlertRules();
+  saveAlertRules(rules.filter((_, i) => i !== index));
+  renderAlertRulesList();
+  evaluateAlertRules();
+}
+
+function renderAlertRulesList() {
+  const rules = loadAlertRules();
+  const el = document.getElementById('alert-rules-list');
+  if (!rules.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0 10px">등록된 알림 규칙이 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = rules.map((r, i) => `
+    <div class="alert-rule-item">
+      <div class="alert-rule-desc">
+        <div>${r.label}</div>
+      </div>
+      <button class="btn-remove-alert" onclick="removeAlertRule(${i})" aria-label="규칙 삭제">✕</button>
+    </div>
+  `).join('');
+}
+
+function evaluateAlertRules() {
+  const rules = loadAlertRules();
+  const firedEl = document.getElementById('alert-fired-list');
+  if (!rules.length || !state.articles.length) {
+    firedEl.innerHTML = '';
+    return;
+  }
+
+  // 기자별 일평균 집계
+  const perJournalist = {};
+  const calcDays = state.customRange
+    ? Math.max(1, Math.ceil((new Date(state.customRange.to) - new Date(state.customRange.from)) / 86400000) + 1)
+    : state.filterDays;
+
+  state.articles.forEach(a => {
+    const name = a[CONFIG.COL_REPORTER_NAME] || state.journalists[a[CONFIG.COL_JOURNALIST_ID]]?.name || '';
+    if (!name) return;
+    perJournalist[name] = (perJournalist[name] || 0) + 1;
+  });
+
+  const firedBanners = [];
+
+  rules.forEach((rule, i) => {
+    let fired = false;
+    let message = '';
+
+    if (rule.type === 'total_gte') {
+      if (state.articles.length >= rule.threshold) {
+        fired = true;
+        message = `기간 내 전체 기사 ${state.articles.length}건 — 임계값 ${rule.threshold}건 초과`;
+      }
+    } else if (rule.type === 'total_lte') {
+      if (state.articles.length <= rule.threshold) {
+        fired = true;
+        message = `기간 내 전체 기사 ${state.articles.length}건 — 임계값 ${rule.threshold}건 이하`;
+      }
+    } else if (rule.type === 'journalist_gte' || rule.type === 'journalist_lte') {
+      const matched = Object.entries(perJournalist).find(([name]) => name.includes(rule.journalistName));
+      if (matched) {
+        const [name, total] = matched;
+        const dailyAvg = total / calcDays;
+        if (rule.type === 'journalist_gte' && dailyAvg >= rule.threshold) {
+          fired = true;
+          message = `${name} 기자 일평균 ${dailyAvg.toFixed(1)}건 — 임계값 ${rule.threshold}건/일 초과`;
+        } else if (rule.type === 'journalist_lte' && dailyAvg <= rule.threshold) {
+          fired = true;
+          message = `${name} 기자 일평균 ${dailyAvg.toFixed(1)}건 — 임계값 ${rule.threshold}건/일 이하`;
+        }
+      }
+    }
+
+    if (fired) {
+      firedBanners.push({ message, index: i });
+    }
+  });
+
+  firedEl.innerHTML = firedBanners.map(({ message, index }) => `
+    <div class="alert-banner" role="alert">
+      <span class="alert-banner-icon">🔔</span>
+      <span class="alert-banner-text">${message}</span>
+      <button class="alert-banner-close" onclick="this.closest('.alert-banner').remove()" aria-label="알림 닫기">×</button>
+    </div>
+  `).join('');
 }
 
 // ── Realtime ───────────────────────────────────────────────────────────────
