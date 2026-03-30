@@ -645,9 +645,119 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+
+  /* Toast */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .toast {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    color: var(--text);
+    font-size: 13px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    animation: toast-in 0.2s ease;
+    pointer-events: auto;
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Empty / Error State */
+  .state-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .state-icon { font-size: 28px; opacity: 0.45; line-height: 1; }
+
+  .state-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 2px;
+  }
+
+  .state-desc { font-size: 12px; line-height: 1.7; max-width: 280px; }
+
+  .btn-retry {
+    margin-top: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 13px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn-retry:hover { opacity: 0.8; }
+
+  /* Keyboard focus */
+  .journalist-row:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* Button disabled */
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .main.detail-open { grid-template-columns: 1fr; }
+    .main.detail-open .content { border-right: none; border-bottom: 1px solid var(--border); }
+    .sidebar { position: static; max-height: none; }
+  }
+
+  @media (max-width: 768px) {
+    .header { padding: 0 12px; height: auto; min-height: 60px; flex-wrap: wrap; gap: 6px; padding-block: 8px; }
+    .header-right { gap: 6px; flex-wrap: wrap; width: 100%; }
+    .filter-group { flex: 1; }
+    .filter-btn { flex: 1; text-align: center; }
+    .content { padding: 12px; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 480px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-value { font-size: 20px; }
+    .ranking-table .bar-cell,
+    .ranking-table th:nth-child(3) { display: none; }
+    .setup-card { padding: 24px 16px; }
+  }
 </style>
 </head>
 <body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-label="데이터 로딩 중" style="display:none">
+  <div class="spinner" aria-hidden="true"></div>
+  <div class="loading-text" id="loading-text">불러오는 중...</div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container" role="log" aria-live="polite" aria-atomic="false"></div>
 
 <!-- Setup Screen -->
 <div id="setup-screen">
@@ -655,14 +765,14 @@
     <h1>기자 취재 동향 대시보드</h1>
     <p>Supabase 연결 정보를 입력하세요. 이 값은 브라우저 로컬스토리지에 저장됩니다.</p>
     <div class="field">
-      <label>Supabase URL</label>
-      <input type="text" id="input-url" placeholder="https://xxxx.supabase.co">
+      <label for="input-url">Supabase URL</label>
+      <input type="url" id="input-url" placeholder="https://xxxx.supabase.co" autocomplete="off">
     </div>
     <div class="field">
-      <label>Supabase Anon / Publishable Key</label>
-      <input type="text" id="input-key" placeholder="eyJ... 또는 sb_publishable_...">
+      <label for="input-key">Supabase Anon / Publishable Key</label>
+      <input type="password" id="input-key" placeholder="eyJ... 또는 sb_publishable_..." autocomplete="current-password">
     </div>
-    <button class="btn-primary" onclick="handleSetup()">연결 확인 후 시작</button>
+    <button class="btn-primary" id="btn-connect" onclick="handleSetup()">연결 확인 후 시작</button>
     <div class="setup-error" id="setup-error"></div>
   </div>
 </div>
@@ -674,13 +784,13 @@
       <span class="header-logo">기자 취재 동향</span>
     </div>
     <div class="header-right">
-      <div class="filter-group">
-        <button class="filter-btn" data-days="1" onclick="setFilter(1)">1일</button>
-        <button class="filter-btn active" data-days="7" onclick="setFilter(7)">7일</button>
-        <button class="filter-btn" data-days="30" onclick="setFilter(30)">30일</button>
-        <button class="filter-btn" data-days="90" onclick="setFilter(90)">90일</button>
+      <div class="filter-group" role="group" aria-label="기간 필터">
+        <button class="filter-btn" data-days="1" onclick="setFilter(1)" aria-pressed="false">1일</button>
+        <button class="filter-btn active" data-days="7" onclick="setFilter(7)" aria-pressed="true">7일</button>
+        <button class="filter-btn" data-days="30" onclick="setFilter(30)" aria-pressed="false">30일</button>
+        <button class="filter-btn" data-days="90" onclick="setFilter(90)" aria-pressed="false">90일</button>
       </div>
-      <button class="btn-settings" onclick="resetSettings()">설정 초기화</button>
+      <button class="btn-settings" onclick="resetSettings()" aria-label="연결 설정 초기화">설정 초기화</button>
     </div>
   </header>
 
@@ -755,7 +865,7 @@
             <div class="detail-name" id="detail-name">—</div>
             <div class="detail-outlet" id="detail-outlet">—</div>
           </div>
-          <button class="btn-close" onclick="closeDetail()">×</button>
+          <button class="btn-close" onclick="closeDetail()" aria-label="상세 패널 닫기">×</button>
         </div>
         <div class="detail-stats">
           <div class="detail-stat">
@@ -812,9 +922,31 @@ const state = {
   journalists: {},
   charts: { hourly: null, section: null, detailHourly: null },
   selectedJournalist: null,
+  cache: {},
+  CACHE_TTL: 5 * 60 * 1000,
 };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
+
+function showLoading(msg = '불러오는 중...') {
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+function showContentError(msg) {
+  document.getElementById('ranking-body').innerHTML = `<tr><td colspan="5">
+    <div class="state-box">
+      <div class="state-icon">⚠</div>
+      <div class="state-title">데이터를 불러오지 못했습니다</div>
+      <div class="state-desc">${msg}</div>
+      <button class="btn-retry" onclick="loadAndRender()">다시 시도</button>
+    </div>
+  </td></tr>`;
+}
 
 function getDateFrom(days) {
   const d = new Date();
@@ -844,6 +976,7 @@ async function handleSetup() {
   const url = document.getElementById('input-url').value.trim();
   const key = document.getElementById('input-key').value.trim();
   const errEl = document.getElementById('setup-error');
+  const btn = document.getElementById('btn-connect');
   errEl.style.display = 'none';
 
   if (!url || !key) {
@@ -851,6 +984,9 @@ async function handleSetup() {
     errEl.style.display = 'block';
     return;
   }
+
+  btn.textContent = '연결 확인 중...';
+  btn.disabled = true;
 
   try {
     const client = window.supabase.createClient(url, key);
@@ -863,6 +999,8 @@ async function handleSetup() {
   } catch (e) {
     errEl.textContent = `연결 실패: ${e.message}`;
     errEl.style.display = 'block';
+    btn.textContent = '연결 확인 후 시작';
+    btn.disabled = false;
   }
 }
 
@@ -880,18 +1018,20 @@ async function initDashboard(url, key) {
 
   state.supabase = window.supabase.createClient(url, key);
 
-  await Promise.all([
-    loadJournalists(),
-    loadAndRender(),
-  ]);
-
+  try {
+    await Promise.all([loadJournalists(), loadAndRender()]);
+  } catch (e) {
+    hideLoading();
+    showToast(`초기화 오류: ${e.message}`);
+  }
 }
 
 async function loadJournalists() {
-  const { data } = await state.supabase
+  const { data, error } = await state.supabase
     .from(CONFIG.TABLE_JOURNALISTS)
     .select('id, name, outlet');
 
+  if (error) throw new Error(error.message);
   if (data) {
     data.forEach(j => { state.journalists[j.id] = j; });
   }
@@ -914,10 +1054,7 @@ async function fetchAllArticles(from) {
       .order(CONFIG.COL_PUBLISHED_AT, { ascending: false })
       .range(offset, offset + PAGE - 1);
 
-    if (error) {
-      console.error('articles fetch error:', error);
-      break;
-    }
+    if (error) throw new Error(error.message);
 
     all = all.concat(data || []);
 
@@ -930,11 +1067,31 @@ async function fetchAllArticles(from) {
 
 async function loadAndRender() {
   const gen = ++_loadGeneration;
-  const from = getDateFrom(state.filterDays);
-  const articles = await fetchAllArticles(from);
-  if (gen !== _loadGeneration) return;
-  state.articles = articles;
-  renderAll();
+  const cacheKey = state.filterDays;
+  const cached = state.cache[cacheKey];
+
+  if (cached && (Date.now() - cached.ts) < state.CACHE_TTL) {
+    if (gen !== _loadGeneration) return;
+    state.articles = cached.articles;
+    renderAll();
+    return;
+  }
+
+  showLoading('기사 데이터 로딩 중...');
+  try {
+    const from = getDateFrom(state.filterDays);
+    const articles = await fetchAllArticles(from);
+    if (gen !== _loadGeneration) return;
+    state.cache[cacheKey] = { articles, ts: Date.now() };
+    state.articles = articles;
+    renderAll();
+  } catch (e) {
+    if (gen !== _loadGeneration) return;
+    showContentError(e.message);
+    showToast(`데이터 로드 실패: ${e.message}`);
+  } finally {
+    if (gen === _loadGeneration) hideLoading();
+  }
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -1107,7 +1264,12 @@ function renderRankingTable(countMap, prevMap) {
     const delta = info.count - prevCount;
     const countDisplay = isTruncated ? `${info.count}+` : info.count;
 
-    return `<tr class="journalist-row" onclick="openDetail('${jid}')">
+    return `<tr class="journalist-row"
+      tabindex="0"
+      role="button"
+      aria-label="${name} 기자 상세 보기"
+      onclick="openDetail('${jid}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${jid}')}">
       <td class="rank-num ${rank <= 3 ? 'top3' : ''}">${rank}</td>
       <td>
         <div class="journalist-name">${name}</div>
@@ -1122,7 +1284,13 @@ function renderRankingTable(countMap, prevMap) {
   }).join('');
 
   if (!sorted.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">기간 내 데이터 없음</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="5">
+      <div class="state-box">
+        <div class="state-icon">📭</div>
+        <div class="state-title">기간 내 데이터 없음</div>
+        <div class="state-desc">선택한 기간(${state.filterDays}일) 동안 수집된 기사가 없습니다.<br>다른 기간을 선택해보세요.</div>
+      </div>
+    </td></tr>`;
   }
 }
 
@@ -1375,20 +1543,22 @@ function renderAnalysis(journalist, articles) {
 function setFilter(days) {
   state.filterDays = days;
   document.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.days) === days);
+    const isActive = parseInt(btn.dataset.days) === days;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive);
   });
   loadAndRender();
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
-const DEFAULT_URL = 'https://yceweteoswuzsyvybumg.supabase.co';
-const DEFAULT_KEY = 'sb_publishable_AQFPPkPx6eF0UI3cnshGGA_fESquPW-';
-
 (function boot() {
-  const url = localStorage.getItem('sb_url') || DEFAULT_URL;
-  const key = localStorage.getItem('sb_key') || DEFAULT_KEY;
-  initDashboard(url, key);
+  const url = localStorage.getItem('sb_url');
+  const key = localStorage.getItem('sb_key');
+  if (url && key) {
+    initDashboard(url, key);
+  }
+  // 저장된 인증 정보 없으면 setup-screen이 기본 표시됨
 })();
 </script>
 </body>
