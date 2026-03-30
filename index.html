@@ -873,6 +873,32 @@
 
   .btn-retry:hover { opacity: 0.8; }
 
+  /* Realtime banner */
+  .realtime-banner {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    background: rgba(46,204,143,0.08);
+    border: 1px solid rgba(46,204,143,0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .realtime-banner.visible { display: flex; }
+  .realtime-banner:hover { background: rgba(46,204,143,0.14); }
+  .realtime-banner-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; flex-shrink: 0; animation: pulse 1.5s infinite; }
+  .realtime-banner-text { flex: 1; color: var(--green); font-weight: 500; }
+  .realtime-banner-action { color: var(--accent); font-weight: 600; font-size: 12px; white-space: nowrap; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
   /* Trend alerts */
   .trend-alerts {
     background: var(--surface);
@@ -1170,6 +1196,13 @@
   <div class="main">
     <!-- Content -->
     <div class="content">
+      <!-- Realtime Banner -->
+      <div id="realtime-banner" class="realtime-banner" onclick="refreshFromRealtime()" role="status" aria-live="polite" aria-label="새 기사 알림">
+        <span class="realtime-banner-dot" aria-hidden="true"></span>
+        <span class="realtime-banner-text" id="realtime-banner-text">새 기사가 추가됐습니다</span>
+        <span class="realtime-banner-action">새로고침 →</span>
+      </div>
+
       <!-- Stats -->
       <div class="stats-row">
         <div class="stat-card">
@@ -1319,6 +1352,8 @@ const state = {
   CACHE_TTL: 5 * 60 * 1000,
   customRange: null,   // { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
   compareSet: new Set(),
+  realtimeChannel: null,
+  realtimePending: 0,
 };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -1473,6 +1508,7 @@ async function initDashboard(url, key) {
   showLoading('연결 중...');
   try {
     await Promise.all([loadJournalists(), loadAndRender()]);
+    subscribeRealtime();
   } catch (e) {
     showToast(`초기화 오류: ${e.message}`);
   } finally {
@@ -2362,6 +2398,44 @@ function applyCustomDate() {
   btnCustom.setAttribute('aria-pressed', 'true');
   btnCustom.textContent = `${from.slice(5)} ~ ${to.slice(5)}`;
 
+  loadAndRender();
+}
+
+// ── Realtime ───────────────────────────────────────────────────────────────
+
+function subscribeRealtime() {
+  if (state.realtimeChannel) {
+    state.supabase.removeChannel(state.realtimeChannel);
+  }
+  state.realtimePending = 0;
+
+  state.realtimeChannel = state.supabase
+    .channel('articles-insert')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: CONFIG.TABLE_ARTICLES },
+      () => {
+        state.realtimePending++;
+        updateRealtimeBanner();
+      }
+    )
+    .subscribe();
+}
+
+function updateRealtimeBanner() {
+  const banner = document.getElementById('realtime-banner');
+  const text = document.getElementById('realtime-banner-text');
+  text.textContent = `새 기사 ${state.realtimePending}건이 추가됨`;
+  banner.classList.add('visible');
+}
+
+function refreshFromRealtime() {
+  state.realtimePending = 0;
+  document.getElementById('realtime-banner').classList.remove('visible');
+  const cacheKey = state.customRange
+    ? `custom_${state.customRange.from}_${state.customRange.to}`
+    : state.filterDays;
+  delete state.cache[cacheKey];
   loadAndRender();
 }
 
