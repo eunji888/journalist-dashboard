@@ -121,6 +121,27 @@
     display: none;
   }
 
+  .key-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: rgba(79,142,247,0.08);
+    border: 1px solid rgba(79,142,247,0.2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .key-notice-icon {
+    color: var(--accent);
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
   /* Main Dashboard */
   #dashboard {
     display: none;
@@ -763,7 +784,7 @@
 <div id="setup-screen">
   <div class="setup-card">
     <h1>기자 취재 동향 대시보드</h1>
-    <p>Supabase 연결 정보를 입력하세요. 이 값은 브라우저 로컬스토리지에 저장됩니다.</p>
+    <p>Supabase 연결 정보를 입력하세요.</p>
     <div class="field">
       <label for="input-url">Supabase URL</label>
       <input type="url" id="input-url" placeholder="https://xxxx.supabase.co" autocomplete="off">
@@ -771,6 +792,10 @@
     <div class="field">
       <label for="input-key">Supabase Anon / Publishable Key</label>
       <input type="password" id="input-key" placeholder="eyJ... 또는 sb_publishable_..." autocomplete="current-password">
+    </div>
+    <div class="key-notice">
+      <span class="key-notice-icon">ℹ</span>
+      <span>입력하신 키는 <strong style="color:var(--text)">공개용(anon/publishable) 키</strong>로, 외부에 노출되어도 안전합니다. 브라우저 로컬스토리지에 저장되며, 비밀번호나 서비스 키와는 다릅니다.</span>
     </div>
     <button class="btn-primary" id="btn-connect" onclick="handleSetup()">연결 확인 후 시작</button>
     <div class="setup-error" id="setup-error"></div>
