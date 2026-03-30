@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root {
     --bg: #0d0f14;
@@ -218,6 +219,55 @@
     font-size: 12px;
     cursor: pointer;
   }
+
+  /* Export */
+  .header-left { position: relative; }
+
+  .btn-export {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 11px;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .btn-export:hover { color: var(--text); border-color: var(--accent); }
+
+  .export-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 500;
+    min-width: 160px;
+    overflow: hidden;
+  }
+
+  .export-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font);
+  }
+
+  .export-menu-item:hover { background: var(--surface2); }
+  .export-menu-item .menu-icon { font-size: 15px; }
 
   /* Date picker popup */
   .header-right { position: relative; }
@@ -1040,6 +1090,15 @@
   <header class="header">
     <div class="header-left">
       <span class="header-logo">기자 취재 동향</span>
+      <button class="btn-export" onclick="toggleExportMenu()" aria-haspopup="true" aria-expanded="false" id="btn-export">↓ 내보내기</button>
+      <div id="export-menu" class="export-menu" style="display:none" role="menu">
+        <button class="export-menu-item" onclick="exportCSV()" role="menuitem">
+          <span class="menu-icon">📋</span> CSV 다운로드
+        </button>
+        <button class="export-menu-item" onclick="exportImage()" role="menuitem">
+          <span class="menu-icon">🖼</span> 이미지 저장
+        </button>
+      </div>
     </div>
     <div class="header-right">
       <div class="filter-group" role="group" aria-label="기간 필터">
@@ -1923,6 +1982,80 @@ function renderAnalysis(journalist, articles) {
   card.style.display = 'block';
 }
 
+// ── Export ─────────────────────────────────────────────────────────────────
+
+function toggleExportMenu() {
+  const menu = document.getElementById('export-menu');
+  const btn = document.getElementById('btn-export');
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  btn.setAttribute('aria-expanded', !isOpen);
+}
+
+function exportCSV() {
+  document.getElementById('export-menu').style.display = 'none';
+
+  const countMap = {};
+  state.articles.forEach(a => {
+    const jid = a[CONFIG.COL_JOURNALIST_ID];
+    if (!countMap[jid]) countMap[jid] = { count: 0, sections: {} };
+    countMap[jid].count++;
+    const s = a[CONFIG.COL_SECTION] || '미분류';
+    countMap[jid].sections[s] = (countMap[jid].sections[s] || 0) + 1;
+  });
+
+  const periodLabel = state.customRange
+    ? `${state.customRange.from}~${state.customRange.to}`
+    : `최근${state.filterDays}일`;
+
+  const rows = [['기자명', '매체', `기사수(${periodLabel})`, '주요섹션', '일평균']];
+
+  Object.entries(countMap)
+    .sort((a, b) => b[1].count - a[1].count)
+    .forEach(([jid, info]) => {
+      const journalist = state.journalists[jid];
+      const name = journalist?.name || '알 수 없음';
+      const outlet = journalist?.outlet || '';
+      const topSection = Object.entries(info.sections).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+      const days = state.customRange
+        ? Math.ceil((new Date(state.customRange.to) - new Date(state.customRange.from)) / 86400000) + 1
+        : state.filterDays;
+      const dailyAvg = (info.count / days).toFixed(1);
+      rows.push([name, outlet, info.count, topSection, dailyAvg]);
+    });
+
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `journalist-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV 다운로드가 시작됩니다.');
+}
+
+async function exportImage() {
+  document.getElementById('export-menu').style.display = 'none';
+  showToast('이미지 캡처 중...');
+  try {
+    const canvas = await html2canvas(document.querySelector('.content'), {
+      backgroundColor: '#0d0f14',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+    });
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `journalist-dashboard-${new Date().toISOString().slice(0, 10)}.png`;
+    a.click();
+    showToast('이미지가 저장됐습니다.');
+  } catch (e) {
+    showToast(`이미지 저장 실패: ${e.message}`);
+  }
+}
+
 // ── Compare ────────────────────────────────────────────────────────────────
 
 function toggleCompare(jid, checkbox) {
@@ -2133,11 +2266,19 @@ function applyCustomDate() {
 
 // 팝업 외부 클릭 시 닫기
 document.addEventListener('click', (e) => {
-  const popup = document.getElementById('date-picker-popup');
+  const datePicker = document.getElementById('date-picker-popup');
   const btnCustom = document.getElementById('btn-custom-date');
-  if (!popup || popup.style.display === 'none') return;
-  if (!popup.contains(e.target) && e.target !== btnCustom) {
-    popup.style.display = 'none';
+  if (datePicker && datePicker.style.display !== 'none'
+      && !datePicker.contains(e.target) && e.target !== btnCustom) {
+    datePicker.style.display = 'none';
+  }
+
+  const exportMenu = document.getElementById('export-menu');
+  const btnExport = document.getElementById('btn-export');
+  if (exportMenu && exportMenu.style.display !== 'none'
+      && !exportMenu.contains(e.target) && e.target !== btnExport) {
+    exportMenu.style.display = 'none';
+    btnExport.setAttribute('aria-expanded', 'false');
   }
 });
 
