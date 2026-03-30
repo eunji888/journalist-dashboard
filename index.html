@@ -989,6 +989,86 @@
   /* Trend badge in ranking row */
   .trend-badge { font-size: 11px; margin-left: 4px; vertical-align: middle; }
 
+  /* Benchmark */
+  .benchmark-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    display: none;
+  }
+
+  .benchmark-section.visible { display: block; }
+
+  .benchmark-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .benchmark-chart-wrap canvas { max-height: 200px; }
+
+  .benchmark-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .benchmark-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 480px;
+    padding: 24px;
+  }
+
+  .benchmark-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .benchmark-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+
+  .benchmark-item-name { flex: 1; font-weight: 600; }
+  .benchmark-item-url { font-size: 11px; color: var(--text-muted); }
+
+  .btn-remove-benchmark {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 4px;
+    transition: color 0.15s;
+  }
+
+  .btn-remove-benchmark:hover { color: var(--red); }
+
+  .benchmark-add-form {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    margin-top: 12px;
+  }
+
   /* Natural Language Query */
   .nl-query-section {
     background: var(--surface);
@@ -1212,6 +1292,42 @@
   <div class="loading-text" id="loading-text">불러오는 중...</div>
 </div>
 
+<!-- Benchmark Settings Modal -->
+<div id="benchmark-modal-backdrop" class="benchmark-modal-backdrop" style="display:none" role="dialog" aria-modal="true" aria-label="경쟁사 벤치마크 설정">
+  <div class="benchmark-modal">
+    <div class="benchmark-modal-header">
+      <span style="font-weight:700;font-size:15px">비교 매체 설정</span>
+      <button class="btn-close" onclick="closeBenchmarkSettings()" aria-label="설정 닫기">×</button>
+    </div>
+    <div id="benchmark-list"></div>
+    <div class="benchmark-add-form">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">매체 추가</div>
+      <div class="field" style="margin-bottom:10px">
+        <label for="bm-name">매체명</label>
+        <input type="text" id="bm-name" placeholder="예: 블록미디어" autocomplete="off">
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label for="bm-url">Supabase URL</label>
+        <input type="url" id="bm-url" placeholder="https://xxxx.supabase.co" autocomplete="off">
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label for="bm-key">Anon Key</label>
+        <input type="password" id="bm-key" placeholder="eyJ..." autocomplete="off">
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label for="bm-table">기사 테이블명</label>
+        <input type="text" id="bm-table" placeholder="articles" autocomplete="off">
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label for="bm-col">발행시각 컬럼명</label>
+        <input type="text" id="bm-col" placeholder="published_at" autocomplete="off">
+      </div>
+      <button class="btn-primary" onclick="addBenchmark()" style="width:100%">추가</button>
+      <div class="setup-error" id="bm-error" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Compare Modal -->
 <div id="compare-backdrop" class="compare-backdrop" style="display:none" role="dialog" aria-modal="true" aria-label="기자 비교 분석">
   <div class="compare-modal">
@@ -1283,6 +1399,7 @@
         <input type="date" id="date-to">
         <button class="btn-apply-date" onclick="applyCustomDate()">적용</button>
       </div>
+      <button class="btn-share" id="btn-benchmark" onclick="toggleBenchmarkSection()" aria-label="경쟁사 벤치마크" title="경쟁사 벤치마크 차트">📊 벤치마크</button>
       <button class="btn-share" id="btn-share" onclick="copyShareLink()" aria-label="공유 링크 복사" title="현재 뷰 공유 링크 복사">🔗 공유</button>
       <button class="btn-settings" onclick="resetSettings()" aria-label="연결 설정 초기화">설정 초기화</button>
     </div>
@@ -1381,6 +1498,21 @@
           </tbody>
         </table>
       </div>
+      <!-- Benchmark Section -->
+      <div class="benchmark-section" id="benchmark-section">
+        <div class="benchmark-header">
+          <div class="section-title" style="margin-bottom:0">경쟁사 벤치마크</div>
+          <button class="btn-share" onclick="openBenchmarkSettings()" aria-label="벤치마크 설정" title="비교 매체 추가/관리">⚙ 설정</button>
+        </div>
+        <div class="benchmark-chart-wrap" style="position:relative">
+          <canvas id="chart-benchmark"></canvas>
+          <div class="chart-overlay" id="chart-benchmark-overlay" style="display:none">
+            <div class="state-icon">📊</div>
+            <div class="state-desc">비교할 매체를 설정에서 추가하세요</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Natural Language Query -->
       <div class="nl-query-section">
         <div class="section-title" style="margin-bottom:12px">자연어 질의</div>
@@ -1462,7 +1594,7 @@ const state = {
   filterDays: 7,
   articles: [],
   journalists: {},
-  charts: { hourly: null, section: null, detailHourly: null, compareHourly: null },
+  charts: { hourly: null, section: null, detailHourly: null, compareHourly: null, benchmark: null },
   selectedJournalist: null,
   cache: {},
   CACHE_TTL: 5 * 60 * 1000,
@@ -1720,6 +1852,9 @@ function renderAll() {
   renderSectionChart();
   renderRanking();
   if (state.selectedJournalist) openDetail(state.selectedJournalist);
+  if (document.getElementById('benchmark-section').classList.contains('visible')) {
+    renderBenchmarkChart();
+  }
 }
 
 function renderBriefing() {
@@ -2763,6 +2898,199 @@ function runNLQuery() {
   }
 
   resultEl.style.display = 'block';
+}
+
+// ── Benchmark ──────────────────────────────────────────────────────────────
+
+function loadBenchmarks() {
+  try {
+    return JSON.parse(localStorage.getItem('bm_list') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveBenchmarks(list) {
+  localStorage.setItem('bm_list', JSON.stringify(list));
+}
+
+function toggleBenchmarkSection() {
+  const section = document.getElementById('benchmark-section');
+  const isVisible = section.classList.toggle('visible');
+  document.getElementById('btn-benchmark').setAttribute('aria-pressed', String(isVisible));
+  if (isVisible) renderBenchmarkChart();
+}
+
+function openBenchmarkSettings() {
+  renderBenchmarkList();
+  document.getElementById('benchmark-modal-backdrop').style.display = 'flex';
+}
+
+function closeBenchmarkSettings() {
+  document.getElementById('benchmark-modal-backdrop').style.display = 'none';
+  document.getElementById('bm-error').textContent = '';
+}
+
+function renderBenchmarkList() {
+  const list = loadBenchmarks();
+  const el = document.getElementById('benchmark-list');
+  if (!list.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0 12px">등록된 매체가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = list.map((bm, i) => `
+    <div class="benchmark-item">
+      <div style="flex:1;min-width:0">
+        <div class="benchmark-item-name">${bm.name}</div>
+        <div class="benchmark-item-url">${bm.url}</div>
+      </div>
+      <button class="btn-remove-benchmark" onclick="removeBenchmark(${i})" aria-label="${bm.name} 제거">✕</button>
+    </div>
+  `).join('');
+}
+
+function addBenchmark() {
+  const name  = document.getElementById('bm-name').value.trim();
+  const url   = document.getElementById('bm-url').value.trim();
+  const key   = document.getElementById('bm-key').value.trim();
+  const table = document.getElementById('bm-table').value.trim() || 'articles';
+  const col   = document.getElementById('bm-col').value.trim() || 'published_at';
+  const errEl = document.getElementById('bm-error');
+
+  if (!name || !url || !key) {
+    errEl.textContent = '매체명, URL, Anon Key는 필수 항목입니다.';
+    return;
+  }
+  errEl.textContent = '';
+
+  const list = loadBenchmarks();
+  saveBenchmarks([...list, { name, url, key, table, col }]);
+
+  document.getElementById('bm-name').value = '';
+  document.getElementById('bm-url').value  = '';
+  document.getElementById('bm-key').value  = '';
+  document.getElementById('bm-table').value = '';
+  document.getElementById('bm-col').value  = '';
+
+  renderBenchmarkList();
+  renderBenchmarkChart();
+}
+
+function removeBenchmark(index) {
+  const list = loadBenchmarks();
+  saveBenchmarks(list.filter((_, i) => i !== index));
+  renderBenchmarkList();
+  renderBenchmarkChart();
+}
+
+async function fetchDailyCounts(bm, fromDate, toDate) {
+  const client = window.supabase.createClient(bm.url, bm.key);
+  const { data, error } = await client
+    .from(bm.table)
+    .select(bm.col)
+    .gte(bm.col, fromDate)
+    .lte(bm.col, toDate + 'T23:59:59');
+  if (error) throw new Error(error.message);
+
+  const counts = {};
+  (data || []).forEach(row => {
+    const day = (row[bm.col] || '').slice(0, 10);
+    if (day) counts[day] = (counts[day] || 0) + 1;
+  });
+  return counts;
+}
+
+function buildDayLabels(fromDate, toDate) {
+  const labels = [];
+  const cur = new Date(fromDate);
+  const end = new Date(toDate);
+  while (cur <= end) {
+    labels.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return labels;
+}
+
+async function renderBenchmarkChart() {
+  const overlayEl = document.getElementById('chart-benchmark-overlay');
+  const canvasEl  = document.getElementById('chart-benchmark');
+  const benchmarks = loadBenchmarks();
+
+  if (!benchmarks.length) {
+    canvasEl.style.display = 'none';
+    overlayEl.style.display = 'flex';
+    return;
+  }
+
+  overlayEl.style.display = 'none';
+  canvasEl.style.display = 'block';
+
+  const { from, to } = getFilterRange();
+  const fromDate = from.slice(0, 10);
+  const toDate   = to.slice(0, 10);
+  const labels   = buildDayLabels(fromDate, toDate);
+
+  // 자체 매체 일별 집계
+  const ownCounts = {};
+  state.articles.forEach(a => {
+    const day = (a[CONFIG.COL_PUBLISHED_AT] || '').slice(0, 10);
+    if (day) ownCounts[day] = (ownCounts[day] || 0) + 1;
+  });
+
+  const COLORS = ['#4f8ef7', '#2ecc8f', '#f5a623', '#e85d5d', '#a78bfa', '#34d399'];
+
+  const datasets = [
+    {
+      label: '자체 매체',
+      data: labels.map(d => ownCounts[d] || 0),
+      borderColor: COLORS[0],
+      backgroundColor: COLORS[0] + '22',
+      tension: 0.3,
+      fill: true,
+      pointRadius: labels.length > 30 ? 0 : 3,
+    }
+  ];
+
+  const results = await Promise.allSettled(
+    benchmarks.map(bm => fetchDailyCounts(bm, fromDate, toDate))
+  );
+
+  results.forEach((res, i) => {
+    const bm = benchmarks[i];
+    const counts = res.status === 'fulfilled' ? res.value : {};
+    datasets.push({
+      label: bm.name,
+      data: labels.map(d => counts[d] || 0),
+      borderColor: COLORS[(i + 1) % COLORS.length],
+      backgroundColor: COLORS[(i + 1) % COLORS.length] + '22',
+      tension: 0.3,
+      fill: false,
+      pointRadius: labels.length > 30 ? 0 : 3,
+    });
+  });
+
+  if (state.charts.benchmark) {
+    state.charts.benchmark.destroy();
+    state.charts.benchmark = null;
+  }
+
+  state.charts.benchmark = new Chart(canvasEl, {
+    type: 'line',
+    data: { labels: labels.map(d => d.slice(5)), datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { ticks: { color: '#7a869a', maxTicksLimit: 10, font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#7a869a', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true },
+      },
+    },
+  });
 }
 
 // ── Realtime ───────────────────────────────────────────────────────────────
