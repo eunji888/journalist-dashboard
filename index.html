@@ -873,6 +873,53 @@
 
   .btn-retry:hover { opacity: 0.8; }
 
+  /* Trend alerts */
+  .trend-alerts {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    display: none;
+  }
+
+  .trend-alerts.visible { display: block; }
+
+  .trend-alerts-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+  }
+
+  .trend-alert-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .trend-alert-item:last-child { border-bottom: none; }
+  .trend-alert-item:hover .trend-alert-name { color: var(--accent); }
+
+  .trend-alert-icon { font-size: 15px; flex-shrink: 0; }
+  .trend-alert-name { font-weight: 600; flex: 1; }
+  .trend-alert-outlet { font-size: 11px; color: var(--text-muted); }
+  .trend-alert-change { font-family: var(--mono); font-size: 12px; font-weight: 600; flex-shrink: 0; }
+  .trend-alert-change.up { color: var(--green); }
+  .trend-alert-change.down { color: var(--red); }
+
+  /* Trend badge in ranking row */
+  .trend-badge { font-size: 11px; margin-left: 4px; vertical-align: middle; }
+
   /* Compare checkbox */
   .compare-check-cell { width: 24px; padding-right: 4px !important; }
   .compare-checkbox { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); vertical-align: middle; }
@@ -1145,6 +1192,12 @@
           <div class="stat-value" id="stat-top-section" style="font-size:16px;margin-top:4px;">—</div>
           <div class="stat-delta delta-neutral" id="stat-section-count"></div>
         </div>
+      </div>
+
+      <!-- Trend Alerts -->
+      <div class="trend-alerts" id="trend-alerts">
+        <div class="trend-alerts-header">🔔 주목할 변화</div>
+        <div id="trend-alerts-list"></div>
       </div>
 
       <!-- Charts -->
@@ -1504,6 +1557,7 @@ async function loadAndRender() {
 
 function renderAll() {
   renderStats();
+  document.getElementById('trend-alerts').classList.remove('visible'); // 이전 alerts 초기화
   renderHourlyChart();
   renderSectionChart();
   renderRanking();
@@ -1676,11 +1730,14 @@ function renderRanking() {
       (data || []).forEach(a => {
         prevMap[a[CONFIG.COL_JOURNALIST_ID]] = (prevMap[a[CONFIG.COL_JOURNALIST_ID]] || 0) + 1;
       });
-      renderRankingTable(countMap, prevMap);
+      const anomalies = detectAnomalies(countMap, prevMap);
+      renderTrendAlerts(anomalies);
+      renderRankingTable(countMap, prevMap, anomalies);
     });
 }
 
-function renderRankingTable(countMap, prevMap) {
+function renderRankingTable(countMap, prevMap, anomalies = []) {
+  const anomalyMap = Object.fromEntries(anomalies.map(a => [a.jid, a]));
   const sorted = Object.entries(countMap).sort((a, b) => b[1].count - a[1].count);
   const maxCount = sorted[0]?.[1]?.count || 1;
   const tbody = document.getElementById('ranking-body');
@@ -1696,6 +1753,10 @@ function renderRankingTable(countMap, prevMap) {
     const prevCount = prevMap[jid] || 0;
     const delta = info.count - prevCount;
     const countDisplay = isTruncated ? `${info.count}+` : info.count;
+    const anomaly = anomalyMap[jid];
+    const badge = anomaly
+      ? `<span class="trend-badge" title="전기 대비 ${anomaly.change > 0 ? '+' : ''}${Math.round(anomaly.change * 100)}%">${anomaly.change > 0 ? '🔺' : '🔻'}</span>`
+      : '';
 
     const isChecked = state.compareSet.has(jid);
     return `<tr class="journalist-row"
@@ -1710,7 +1771,7 @@ function renderRankingTable(countMap, prevMap) {
       </td>
       <td class="rank-num ${rank <= 3 ? 'top3' : ''}">${rank}</td>
       <td>
-        <div class="journalist-name">${name}</div>
+        <div class="journalist-name">${name}${badge}</div>
         <div class="journalist-outlet">${outlet}</div>
       </td>
       <td class="bar-cell">
@@ -1980,6 +2041,48 @@ function renderAnalysis(journalist, articles) {
   }
 
   card.style.display = 'block';
+}
+
+// ── Trend Detection ────────────────────────────────────────────────────────
+
+function detectAnomalies(countMap, prevMap) {
+  const anomalies = [];
+  Object.entries(countMap).forEach(([jid, info]) => {
+    const prev = prevMap[jid] || 0;
+    if (prev === 0) return;
+    const change = (info.count - prev) / prev;
+    if (Math.abs(change) >= 0.5) {
+      const journalist = state.journalists[jid];
+      anomalies.push({
+        jid,
+        name: journalist?.name || info.name || '알 수 없음',
+        outlet: journalist?.outlet || info.outlet || '',
+        count: info.count,
+        prev,
+        change,
+      });
+    }
+  });
+  return anomalies.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+}
+
+function renderTrendAlerts(anomalies) {
+  const section = document.getElementById('trend-alerts');
+  const list = document.getElementById('trend-alerts-list');
+  if (!anomalies.length) { section.classList.remove('visible'); return; }
+
+  list.innerHTML = anomalies.slice(0, 5).map(a => {
+    const isUp = a.change > 0;
+    const pct = Math.round(Math.abs(a.change) * 100);
+    const label = isUp ? `+${pct}% 급증` : `-${pct}% 급감`;
+    return `<div class="trend-alert-item" onclick="openDetail('${a.jid}')">
+      <span class="trend-alert-icon">${isUp ? '🔺' : '🔻'}</span>
+      <span class="trend-alert-name">${a.name}</span>
+      <span class="trend-alert-outlet">${a.outlet}</span>
+      <span class="trend-alert-change ${isUp ? 'up' : 'down'}">${label}</span>
+    </div>`;
+  }).join('');
+  section.classList.add('visible');
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────
