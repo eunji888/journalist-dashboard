@@ -39,7 +39,7 @@
 
   /* Setup Screen */
   #setup-screen {
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
@@ -3407,12 +3407,9 @@ document.addEventListener('click', (e) => {
 });
 
 (function boot() {
-  const url = localStorage.getItem('sb_url');
-  const key = localStorage.getItem('sb_key');
-  if (url && key) {
-    initDashboard(url, key);
-  }
-  // 저장된 인증 정보 없으면 setup-screen이 기본 표시됨
+  const url = 'https://yceweteoswuzsyvybumg.supabase.co';
+  const key = 'sb_publishable_AQFPPkPx6eF0UI3cnshGGA_fESquPW-';
+  initDashboard(url, key);
 })();
 </script>
 </body>
